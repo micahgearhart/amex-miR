@@ -1,0 +1,423 @@
+---
+title: "Regeneration Paper"
+author: "micah gearhart"
+date: "4/16/2015"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+# Process raw data at the University of Minnesota Supercomputer Institute
+```{r mapping,eval=F,engine=bash}
+#!/bin/bash
+#PBS -l mem=956gb,nodes=1:ppn=32,walltime=2:00:00 
+#PBS -m a
+#PBS -M gearh006@umn.edu 
+#PBS -q ram1t 
+
+wd=/home/bardwell/gearhart/axo/axo4
+dd=/home/echeverr/gearhart/axo
+cd $wd
+
+
+cat << EOF > solexa.r
+library("ShortRead")
+
+#Illumina small RNA-Seq 3' adapter:  TCGTATGCCGTCTTCTGCTTGT
+adapter <- DNAString("TCGTATGCCGTCTTCTGCTTGT")
+
+am1<-readBaseQuality("/home/echeverr/gearhart/miRNA-Solexa/AM0001", seqPattern="*_1.seq.txt", prbPattern="*_1.prb.txt",type="Solexa")
+am1<-am1[alphabetScore(am1) > 800]
+am1<-am1[vcountPattern("-",sread(am1))==0]
+am1trimmed<-trimLRPatterns(Rpattern=adapter,Lpattern=adapter,subject=am1,max.Rmismatch=0.1)
+writeFastq(am1trimmed,file="/home/bardwell/gearhart/am1_qf_trim.fastq.gz",full=TRUE)
+
+am2<-readBaseQuality("/home/echeverr/gearhart/miRNA-Solexa/AM0002", seqPattern="*_1.seq.txt", prbPattern="*_1.prb.txt",type="Solexa")
+am2<-am2[alphabetScore(am2) > 800]
+am2<-am2[vcountPattern("-",sread(am2)) == 0]
+am2trimmed<-trimLRPatterns(Rpattern=adapter, Lpattern=adapter, subject=am2,max.Rmismatch=0.1)
+writeFastq(am2trimmed,file="/home/bardwell/gearhart/am2_qf_trim.fastq.gz",full=TRUE)
+
+
+#download("ftp://mirbase.org/pub/mirbase/21/mature.fa.gz",dest="mature.fa.gz")
+#gunzip("mature.fa.gz")
+mature<-readRNAStringSet("mature.fa")
+matureDNA<-DNAStringSet(mature)
+writeXStringSet(matureDNA,"matureDNA.fa")
+
+EOF
+
+module load R/3.2.0_intel_mkl 
+export R_LIBS_USER="/panfs/roc/groups/10/bardwell/shared/R"
+#R --no-save < solexa.r
+
+
+#build indices
+#cd $wd/index
+#bowtie-build -f miRvertebrata_8.2.fasta miRvertebrata
+#bowtie-build -f hairpinDNA.fa hairpin
+#bowtie-build -f matureDNA.fa mature
+
+export BOWTIE_INDEXES=$wd/index/
+module load bowtie/1.0.0
+module load samtools/0.1.18
+
+for i in am1_qf_trim am2_qf_trim
+do
+ gunzip -c $i.fastq.gz > $i.fastq
+
+
+ #align to mirvertebrata 8.2 database 
+ bowtie -t -v 2 -p 32 -e 99999 --norc miRvertebrata --solexa-quals $i.fastq -S $i.mirvertebrata.sam
+ samtools view -bS -F 0x4 $i.mirvertebrata.sam > $i.mirvertebrata.unsorted.bam
+ samtools sort $i.mirvertebrata.unsorted.bam $i.mirvertebrata
+ samtools index $i.mirvertebrata.bam 
+
+ #align to mature miRNA database
+ bowtie -t -p 32 -e 99999 --norc mature --solexa-quals $i.fastq  --un $i.unmapped2mature.fastq -S $i.mature.sam
+ samtools view -bS -F 0x4 $i.mature.sam > $i.mature.unsorted.bam
+ samtools sort $i.mature.unsorted.bam $i.mature
+ samtools index $i.mature.bam
+
+ #cleanup
+ #rm $i.*.sam
+ rm $i.*.unsorted.bam
+
+done
+
+
+cat << EOF > stringdist.r 
+
+library("ShortRead")
+library("BiocParallel")
+library("dplyr")
+library("magrittr")
+library("tidyr")
+library("stringdist")
+library("pryr")
+library("flashClust")
+
+
+(fls<-list.files(".",pattern=glob2rx("am?_qf_trim.unmapped2mature.fastq"),full.names=F))
+temp<-do.call(cbind,lapply(fls,readFastq))
+table(width(sread(temp[[1]])))
+
+fullSeqHash <- function (x) {
+  x<-x[width(x)>=20 & width(x)<=24] #based on table above
+  seed<-as.data.frame(table(as.factor(as.character(sread(x)))))
+  seed<-seed[with(seed,order(-Freq)),]
+  return(seed)
+}
+
+amFSH<-lapply(temp,fullSeqHash)
+names(amFSH)<-c("am1","am2")
+for (i in names(amFSH)) {amFSH[[i]]$sample <- i}
+amFSH<-do.call(rbind,amFSH) %>% spread(sample,Freq,fill=0)
+dim(amFSH)
+save(amFSH,file="amFSH.rdata")
+
+(nt<-detectCores())
+register(MulticoreParam(workers=nt))
+#load("amFSH.rdata")
+amFSHs<-amFSH %>% filter((am1+am2)>7)
+dim(amFSHs)
+system.time(d<-as.dist(stringdistmatrix(amFSHs$Var1,amFSHs$Var1,method="lv",nthread=nt)))
+object_size(d)
+system.time(h<-hclust(d))
+object_size(h)
+amFSHs$clust2<-cutree(h,h=2)
+amFSHs$clust3<-cutree(h,h=3)
+amFSHs$clust4<-cutree(h,h=4)
+amFSHs$clust5<-cutree(h,h=5)
+amFSHs$clust6<-cutree(h,h=6)
+amFSHs$clust7<-cutree(h,h=7)
+amFSHs$clust8<-cutree(h,h=8)
+save(amFSHs,file="amFSHs.rdata")
+
+quit(save="no")
+
+EOF
+
+R --no-save < stringdist.r
+```
+
+# Libraries
+```{r libraries}
+library("downloader")
+library("Biostrings")
+library("ShortRead")
+library("BiocParallel")
+library("preprocessCore")
+library("GenomicAlignments")
+library("readxl")
+library("dplyr")
+library("ggplot2")
+library("magrittr")
+library("tidyr")
+library("pryr")
+library("readxl")
+library("flashClust")
+
+setwd("/mnt/afp/micah/R/umn-gcd-bioinformatics-axolotl/axo4")
+```
+
+# Read in sequences unmapped to MirBase 21
+This section reads in the fastq sequences that did not have any matches to mirBase 21.  The fullSeqHash function builds a hash table and enumerates the number of times each sequence occured in each sample.
+
+```{r readUnmapped,eval=F}
+fls<-list.files(".",pattern=glob2rx("am?_qf_trim.unmapped2mature.fastq"),full.names=F)
+fls
+temp<-do.call(cbind,lapply(fls,readFastq))
+table(width(sread(temp[[1]])))
+
+fullSeqHash <- function (x) {
+  x<-x[width(x)>19 & width(x)<24] #based on table above
+  seed<-as.data.frame(table(as.factor(as.character(sread(x)))))
+  seed<-seed[with(seed,order(-Freq)),]
+  return(seed)
+}
+
+amFSH<-lapply(temp,fullSeqHash)
+names(amFSH)<-c("am1","am2")
+for (i in names(amFSH)) {amFSH[[i]]$sample <- i}
+amFSH<-do.call(rbind,amFSH) %>% spread(sample,Freq,fill=0)
+dim(amFSH)
+amFSH[grep("GGCTTCAAGGATCGCTCGGG",amFSH$Var1),]
+save(amFSH,file="amFSH.rdata")
+```
+
+
+# Analysis of miRbase 21 Mapping Results
+This section counts the number of reads in the bam files that are mapped to each miR.  A summary of the known changes or changes that make up more than 5% of the total are tabulated.
+```{r barchart}
+(fls <- list.files(".", pattern=glob2rx("am*qf_trim.mature.bam"),full=TRUE))
+bamlst <- BamFileList(fls,yieldSize=1000000)
+(gr <- GRanges(seqnames(seqinfo(bamlst[[1]])),IRanges(1, seqlengths(bamlst[[1]]))))
+
+#countBam(bamlst[[1]],param=ScanBamParam(flag=scanBamFlag(isUnmappedQuery = TRUE,isNotPassingQualityControls=NA)))
+
+am1_mat<-countBam(bamlst[[1]], param=ScanBamParam(which = gr))
+am2_mat<-countBam(bamlst[[2]], param=ScanBamParam(which = gr))
+am1_mat<-select(am1_mat,space,records)
+colnames(am1_mat)<-c("miR","am1")
+am2_mat<-select(am2_mat,space,records)
+colnames(am2_mat)<-c("miR","am2")
+am_mature<-merge(am1_mat,am2_mat,by="miR")
+row.names(am_mature)<-am_mature[,"miR"]
+am_mature<-am_mature[,-1]
+
+#check distribution
+matdensity(as.matrix(log2(am_mature[am_mature$am1+am_mature$am2 > 7,]+0.5)))
+
+#add family
+am_mature$family<-sapply(strsplit(row.names(am_mature),"-"), function(x) paste0(x[2],"-",gsub("\\*","",x[3])))
+head(am_mature)
+
+#Add unmapped reads to am_mature
+unknowns<-amFSH
+row.names(unknowns)<-unknowns[,"Var1"]
+unknowns<-unknowns[,-1]
+unknowns$family<-"unknown"
+head(unknowns)
+
+#am_mature<-rbind(am_mature,
+#                 data.frame(am1=as.integer(sum(amFSH[,"am1"])),
+#                            am2=as.integer(sum(amFSH[,"am2"])),
+#                            row.names="unknown",
+#                            stringsAsFactors = F))
+
+
+am_mature<-rbind(am_mature,unknowns)
+#check density with unknowns
+matdensity(as.matrix(log2(am_mature[am_mature$am1+am_mature$am2 > 5,c("am1","am2")]+0.5)))
+qtest <- quantro(as.matrix(log2(am_mature[am_mature$am1+am_mature$am2 > 7,c("am1","am2")]+0.5)),
+                 groupFactor = factor(c("am1","am2")))
+
+#subset to samples with more than 7 counts
+am_mature<-am_mature[am_mature$am1+am_mature$am2 > 5,c("family","am1","am2")]
+
+qqnorm(log2(am_mature$am1+0.5))
+qqnorm(log2(am_mature$am2+0.5))
+#not norml
+
+#quantile normalize
+am_mature<-cbind(am_mature,
+                 as.data.frame(normalize.quantiles(as.matrix(am_mature[,c("am1","am2")]))),
+                 varianceStabilizingTransformation(as.matrix(am_mature[,c("am1","am2")])))
+
+colnames(am_mature)<-c("family","am1","am2","qn.am1","qn.am2","vst.am1","vst.am2")
+#colnames(am_mature)<-c("am1","am2","family","qn.am1","qn.am2")
+
+am_mature$log2am1<-log2(am_mature$qn.am1+0.5)
+am_mature$log2am2<-log2(am_mature$qn.am2+0.5)
+qqnorm(am_mature$rl.am1)
+m<-am_mature[am_mature$family!="unknown",]$log2am1-am_mature[am_mature$family!="unknown",]$log2am2
+a<-(am_mature[am_mature$family!="unknown",]$log2am1+am_mature[am_mature$family!="unknown",]$log2am2)/2
+m<-am_mature$vst.am1-am_mature$vst.am2
+a<-(am_mature$vst.am1+am_mature$vst.am2)/2
+plot(a,m,cex=0.4,pch=16,col=ifelse(am_mature$family=="unknown","red","black"))
+abline(h=0,col="black")
+am_mature$logfc<-am_mature$vst.am2-am_mature$vst.am1
+head(am_mature)
+
+tbl1_miRs<-c("let-7","let-7a","let-7f","miR-10","miR-21",
+             "miR-27","miR-128","miR-140","miR-196","miR-199a","miR-206")
+tbl1<-am_mature %>% dplyr::filter(family %in% tbl1_miRs) %>% group_by(family) %>% 
+  summarize(control=sum(am1),blastema=sum(am2)) %>% 
+  mutate(fam=factor(family,levels=tbl1_miRs)) %>% 
+  select(fam,control,blastema)
+tbl1
+```
+
+# Export Tables for Known Sequences
+
+```{r export_known_tables,eval=F}
+temp<-am_mature
+colnames(temp)<-c("miR Family","Control Counts","Blastema Counts",
+                  "Normalized Control Counts","Normalized Blastema Counts",
+                  "Log2 Control Counts","Log2 Blastema Counts","Log2 Fold Change Blastema/Control")
+write.csv(temp,"Supplemental_Table_1.csv",quote=F)
+
+temp2<-tbl1
+colnames(temp2)<-c("miR Family","Control Counts","Blastema Counts")
+write.csv(temp2,"Table_1.csv",quote=F)
+```
+
+# Figure 1a - Barchart of mirBase 21 Mapping Data 
+Create a graphical summary of known sequences that map to mirBase 21.  This graphic shows sequences that are present at > 5% abundance in either sample.
+
+```{r barchart,eval=T,fig.height=8,fig.width=8}
+#Convert counts to fractions for each family
+asFamilies<-am_mature %>% group_by(family) %>% 
+  summarize(control=sum(am1),blastema=sum(am2)) %>%
+  mutate(control = control / sum(control),blastema=blastema/sum(blastema)) 
+
+#Rename "unknown" to "Uncategorized" outside of dplyr for grouping
+asFamilies[asFamilies$family=="unknown","family"]<-"Uncategorized"
+
+asFamilies <- asFamilies %>% 
+  #combined Abundance
+  mutate(family = ifelse((control + blastema) < 0.05,"Combined miRs with < 5% Abundance",family)) %>%
+  mutate(family = factor(family, levels = rev(c("miR-1","miR-1a","miR-1b",
+                                         "let-7","let-7a","let-7f",
+                                         "miR-21","miR-140","miR-199a","miR-206",
+                                         "Combined miRs with < 5% Abundance",
+                                         "Uncategorized"))))   
+  
+  #Alternatively use Sample Specific Abundance
+  #mutate(family = ifelse(!(control > 0.05 | blastema > 0.05),"Combined miRs with < 5% Abundance",family)) 
+  
+#set up colors based on factor levels
+colors<-c("#cbc9e2","#9e9ac8","#6a51a3",
+          "#fdbe85","#fd8d3c","#d94701",
+          "#56B4E9", "#009E73","#F0E442", "#0072B2", 
+          "gray","black")
+          
+asFamilies %>% 
+  gather(sample,reads,control,blastema) %>% dplyr::filter(reads!=0) %>%  
+  ggplot(aes(x=sample,y=reads,fill=family,order=family)) +
+    scale_fill_manual(values=rev(colors),guide = guide_legend(reverse=TRUE)) +
+    geom_bar(stat="identity") +theme_classic()
+```
+
+# Create Table of Validated Novel miRs
+```{r validated_miRs}
+load("amFSHs.rdata")
+head(amFSHs)
+novel_mirs<-amFSHs %>% 
+  mutate(Var1=as.character(Var1)) %>% 
+  group_by(clust4) %>% 
+  summarize(am1s=sum(am1),am2s=sum(am2),
+            seq=list(as.character(Var1)),
+            MaxSeq=as.character(Var1)[which.max(am2)]) 
+  
+validated_mirs <-c("CCACGCAGGGATGTGGCTTT","GGCTTCAAGGATCGCTCGGGCA","GGCCGCAAAGGTTGCACAGGG",
+                   "ACAAACCATCTTGGGCTGTTAC","CCCCGACGGGGAGGGCAATGTTT", "TCCTCCGAGCCAAGCTTTTG",
+                   "ACATATCTACAGTCCTACTATA","CCGAGTTCTGCATTCCGCTTGAA","CCCACGCAGGGATGTGGCTTA",
+                   "AGCCGCATTGTACCGGGCTAT","CGCCGCATTGTACCGGGCTCT","CTTTCCGTCGGATGCTTCCAGC")
+#"Mon Jun 15 10:05:47 2015"
+validated_mirs<-c("CCACGCAGGGATGTGGCTTTT","GGCTTCAAGGATCGCTCGGGC","CCCCGACGGGGAGACTCACTTTT",
+                  "TCCTCCGAGCCAAGCTTTTG","AGCCGCATTGTACAGGGCTAT","AGCCGCATTGTACAGGGCTAT",
+                  "CTTTCCGTCGGATGCTTACAGC")
+
+#Tue Jun 16 11:41:02 2015 - Original Sequences from Karen's Novel miRs Table
+validated_mirs<-c("CCACGCAGGGATGTGGCTTT","GGCTTCAAGGATCGCTCGGGCA","CCCCGACGGGGAGGGCAATGTTT",
+                  "AGCCGCATTGTACCGGGCTAT","CGCCGCATTGTACCGGGCTCT","CTTTCCGTCGGATGCTTCCAGC")
+names(validated_mirs)<-c("KEM42017","KEM68162","KEM43147","KEM21802","KEM48467","KEM56768")
+
+seqX<-lapply(novel_mirs$seq,unlist)
+
+# tbl1$cluster<-as.numeric(sapply(seq_along(validated_mirs),function(x) grep(validated_mirs[x],seqX)))
+
+#Results Table
+validated_mirs<-validated_mirs[!names(validated_mirs) %in% "KEM21802"]
+tbl1<-as.data.frame(validated_mirs)
+
+#pre-allocate
+tbl1$num_seqs<-0
+tbl1$cluster<-0
+tbl1$seqs<-"none"
+
+#for loop to fill table
+for (i in 1:nrow(tbl1)) {
+  tbl1[i,"cluster"]<-which(unlist(sapply(seq_along(seqX),function(x) validated_mirs[i] %in% seqX[[x]])))
+  tbl1[i,"num_seqs"]<-length(unlist(novel_mirs[tbl1[i,"cluster"],"seq"]))
+#  tbl1[i,"seqs"]<-paste0(as.character(unlist(novel_mirs[tbl1[i,"cluster"],"seq"])),collapse=",")
+}
+tbl1$am1<-novel_mirs[tbl1$cluster,"am1s"]
+tbl1$am2<-novel_mirs[tbl1$cluster,"am2s"]
+tbl1$MaxSeq<-novel_mirs[tbl1$cluster,"MaxSeq"]
+ tbl1<-as.data.frame(tbl1)
+ tbl1<-tbl1[tbl1$num_seqs > 0,]
+
+
+  #Use this line to report all sequences in cluster
+  #summarize(am1s=sum(am1),am2s=sum(am2),seq=list(as.character(Var1)))
+
+#Make a Table for the subset of MiRs characterized in this paper
+
+# this one got filtered out somehow?
+#validated_mirs<-"CTTTCCGTCGGATGCTTACAGC"
+
+#f<-function(i) { lapply(blah[i]$seq,function(x) grep(novel_mirs[1],x)) }
+#lapply(seq_along(blah$seq), f)
+seqX<-lapply(novel_mirs$seq,unlist)
+#novel_mirs[unlist(sapply(seq_along(validated_mirs),function(x) grep(validated_mirs[x],seqX))),]
+
+#amFSHs[grep("CTTTCCGTCGGATGCTTACAGC",amFSHs$Seed),]
+#stringDist("CTTTCCGTCGGATGCTTACAGC","TCGTATGCCGTCTT")
+
+#sapply(seq_along(validated_mirs),function(x) grep(validated_mirs[x],seqX))
+
+
+```
+
+# Write out all Novel Families and blast max.sequences against mirBase to find closest known miRs
+```{r}
+nm<-DNAStringSet(novel_mirs$MaxSeq)
+names(nm)<-paste0("axo-",novel_mirs$clust4)
+writeXStringSet(nm,"nm.fa")
+
+#vm<-DNAStringSet(validated_mirs)
+#writeXStringSet(vm,"vm.fa")
+
+#cmd<-"blastn -query vm.fa -outfmt 10 -db ../miRs/mirBase/matureBLAST -word_size 5  "
+system("blastn -query nm.fa -outfmt 10 -out nm_matureBlast.csv -db ../miRs/mirBase/matureBLAST -word_size 4")
+
+br<- read.csv("nm_matureBlast.csv",stringsAsFactors=F,header=F)
+colnames(br)<-c("qseqid","sseqid","pident","length","mismatch","gapopen","qstart","qend","sstart","send" ,"evalue","bitscore")
+
+#set threshold on blast hits
+br<-br[br$evalue < 1 & (br$length-br$mismatch-br$gapopen) > 15,]
+dim(br)
+length(unique(br$qseqid))/length(nm)
+
+
+```
+
+
+#### SESSION INFO
+```{r}
+sessionInfo()
+```
+
