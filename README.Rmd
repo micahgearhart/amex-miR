@@ -8,7 +8,7 @@ output:
 ---
 
 # Process raw data at the University of Minnesota Supercomputer Institute
-```{r mapping,eval=F,engine=bash}
+```{r mapping,eval=F}
 #!/bin/bash
 #PBS -l mem=956gb,nodes=1:ppn=32,walltime=2:00:00 
 #PBS -m a
@@ -143,7 +143,7 @@ R --no-save < stringdist.r
 
 # Libraries
 ```{r libraries}
-library("downloader")
+#library("downloader")
 library("Biostrings")
 library("ShortRead")
 library("BiocParallel")
@@ -157,8 +157,10 @@ library("tidyr")
 library("pryr")
 library("readxl")
 library("flashClust")
+library("quantro")
 
-setwd("/mnt/afp/micah/R/umn-gcd-bioinformatics-axolotl/axo4")
+#setwd("/mnt/afp/micah/R/umn-gcd-bioinformatics-axolotl/axo4")
+setwd("/home/bardwell/gearhart/amex-miR/")
 ```
 
 # Read in sequences unmapped to MirBase 21
@@ -189,7 +191,7 @@ save(amFSH,file="amFSH.rdata")
 
 # Analysis of miRbase 21 Mapping Results
 This section counts the number of reads in the bam files that are mapped to each miR.  A summary of the known changes or changes that make up more than 5% of the total are tabulated.
-```{r barchart}
+```{r countBam,eval=T}
 (fls <- list.files(".", pattern=glob2rx("am*qf_trim.mature.bam"),full=TRUE))
 bamlst <- BamFileList(fls,yieldSize=1000000)
 (gr <- GRanges(seqnames(seqinfo(bamlst[[1]])),IRanges(1, seqlengths(bamlst[[1]]))))
@@ -214,6 +216,7 @@ am_mature$family<-sapply(strsplit(row.names(am_mature),"-"), function(x) paste0(
 head(am_mature)
 
 #Add unmapped reads to am_mature
+load("amFSH.rdata")
 unknowns<-amFSH
 row.names(unknowns)<-unknowns[,"Var1"]
 unknowns<-unknowns[,-1]
@@ -230,43 +233,44 @@ head(unknowns)
 am_mature<-rbind(am_mature,unknowns)
 #check density with unknowns
 matdensity(as.matrix(log2(am_mature[am_mature$am1+am_mature$am2 > 5,c("am1","am2")]+0.5)))
-qtest <- quantro(as.matrix(log2(am_mature[am_mature$am1+am_mature$am2 > 7,c("am1","am2")]+0.5)),
-                 groupFactor = factor(c("am1","am2")))
+#qtest <- quantro(as.matrix(log2(am_mature[am_mature$am1+am_mature$am2 > 7,c("am1","am2")]+0.5)),
+#groupFactor = factor(c("am1","am2")))
 
 #subset to samples with more than 7 counts
 am_mature<-am_mature[am_mature$am1+am_mature$am2 > 5,c("family","am1","am2")]
 
-qqnorm(log2(am_mature$am1+0.5))
-qqnorm(log2(am_mature$am2+0.5))
+#qqnorm(log2(am_mature$am1+0.5))
+#qqnorm(log2(am_mature$am2+0.5))
 #not norml
 
 #quantile normalize
-am_mature<-cbind(am_mature,
-                 as.data.frame(normalize.quantiles(as.matrix(am_mature[,c("am1","am2")]))),
-                 varianceStabilizingTransformation(as.matrix(am_mature[,c("am1","am2")])))
+#am_mature<-cbind(am_mature,
+#                 as.data.frame(normalize.quantiles(as.matrix(am_mature[,c("am1","am2")]))))
+#
+#                 varianceStabilizingTransformation(as.matrix(am_mature[,c("am1","am2")])))
 
-colnames(am_mature)<-c("family","am1","am2","qn.am1","qn.am2","vst.am1","vst.am2")
+#colnames(am_mature)<-c("family","am1","am2","qn.am1","qn.am2","vst.am1","vst.am2")
 #colnames(am_mature)<-c("am1","am2","family","qn.am1","qn.am2")
 
-am_mature$log2am1<-log2(am_mature$qn.am1+0.5)
-am_mature$log2am2<-log2(am_mature$qn.am2+0.5)
-qqnorm(am_mature$rl.am1)
-m<-am_mature[am_mature$family!="unknown",]$log2am1-am_mature[am_mature$family!="unknown",]$log2am2
-a<-(am_mature[am_mature$family!="unknown",]$log2am1+am_mature[am_mature$family!="unknown",]$log2am2)/2
-m<-am_mature$vst.am1-am_mature$vst.am2
-a<-(am_mature$vst.am1+am_mature$vst.am2)/2
-plot(a,m,cex=0.4,pch=16,col=ifelse(am_mature$family=="unknown","red","black"))
-abline(h=0,col="black")
-am_mature$logfc<-am_mature$vst.am2-am_mature$vst.am1
-head(am_mature)
+#am_mature$log2am1<-log2(am_mature$qn.am1+0.5)
+#am_mature$log2am2<-log2(am_mature$qn.am2+0.5)
+#qqnorm(am_mature$rl.am1)
+#m<-am_mature[am_mature$family!="unknown",]$log2am1-am_mature[am_mature$family!="unknown",]$log2am2
+#a<-(am_mature[am_mature$family!="unknown",]$log2am1+am_mature[am_mature$family!="unknown",]$log2am2)/2
+#m<-am_mature$vst.am1-am_mature$vst.am2
+#a<-(am_mature$vst.am1+am_mature$vst.am2)/2
+#plot(a,m,cex=0.4,pch=16,col=ifelse(am_mature$family=="unknown","red","black"))
+#abline(h=0,col="black")
+#am_mature$logfc<-am_mature$vst.am2-am_mature$vst.am1
+#head(am_mature)
 
-tbl1_miRs<-c("let-7","let-7a","let-7f","miR-10","miR-21",
-             "miR-27","miR-128","miR-140","miR-196","miR-199a","miR-206")
-tbl1<-am_mature %>% dplyr::filter(family %in% tbl1_miRs) %>% group_by(family) %>% 
-  summarize(control=sum(am1),blastema=sum(am2)) %>% 
-  mutate(fam=factor(family,levels=tbl1_miRs)) %>% 
-  select(fam,control,blastema)
-tbl1
+#tbl1_miRs<-c("let-7","let-7a","let-7f","miR-10","miR-21",
+#             "miR-27","miR-128","miR-140","miR-196","miR-199a","miR-206")
+#tbl1<-am_mature %>% dplyr::filter(family %in% tbl1_miRs) %>% group_by(family) %>% 
+#  summarize(control=sum(am1),blastema=sum(am2)) %>% 
+#  mutate(fam=factor(family,levels=tbl1_miRs)) %>% 
+#  select(fam,control,blastema)
+#tbl1
 ```
 
 # Export Tables for Known Sequences
@@ -321,7 +325,7 @@ asFamilies %>%
 ```
 
 # Create Table of Validated Novel miRs
-```{r validated_miRs}
+```{r validated_miRs,eval=F}
 load("amFSHs.rdata")
 head(amFSHs)
 novel_mirs<-amFSHs %>% 
@@ -393,7 +397,7 @@ seqX<-lapply(novel_mirs$seq,unlist)
 ```
 
 # Write out all Novel Families and blast max.sequences against mirBase to find closest known miRs
-```{r}
+```{r export_novel,eval=F}
 nm<-DNAStringSet(novel_mirs$MaxSeq)
 names(nm)<-paste0("axo-",novel_mirs$clust4)
 writeXStringSet(nm,"nm.fa")
@@ -417,7 +421,7 @@ length(unique(br$qseqid))/length(nm)
 
 
 #### SESSION INFO
-```{r}
+```{r sessionInfo,eval=T}
 sessionInfo()
 ```
 
