@@ -8,7 +8,7 @@ output:
 ---
 
 # Libraries
-```{r libraries,eval=T}
+```{r libraries,eval=T,results='hide', message=FALSE, warning=FALSE}
 library("downloader")
 library("Biostrings")
 library("ShortRead")
@@ -75,6 +75,7 @@ system2(command="/home/bardwell/shared/bowtie-1.1.2/bowtie",
         stdout="am1_out.txt",stderr="am1_err.txt")
 asBam("am1_qf_trim.mature.sam",destination="am1_qf_trim.unsorted")
 sortBam("am1_qf_trim.unsorted.bam",destination="am1_qf_trim.mature")
+indexBam("am1_qf_trim.mature.bam")
 
 #am2
 system2(command="/home/bardwell/shared/bowtie-1.1.2/bowtie",
@@ -85,6 +86,7 @@ system2(command="/home/bardwell/shared/bowtie-1.1.2/bowtie",
         stdout="am2_out.txt",stderr="am2_err.txt")
 asBam("am2_qf_trim.mature.sam",destination="am2_qf_trim.unsorted")
 sortBam("am2_qf_trim.unsorted.bam",destination="am2_qf_trim.mature")
+indexBam("am2_qf_trim.mature.bam")
 ```
 
 # Read in sequences unmapped to MirBase 21
@@ -135,7 +137,7 @@ save(amFSHs,file="amFSHs.rdata")
 
 # Analysis of miRbase 21 Mapping Results
 This section counts the number of reads in the bam files that are mapped to each miR.  A summary of the known changes or changes that make up more than 5% of the total are tabulated.
-```{r countBam,eval=F}
+```{r countBam,eval=T}
 (fls <- list.files(".", pattern=glob2rx("am*qf_trim.mature.bam"),full=TRUE))
 bamlst <- BamFileList(fls,yieldSize=1000000)
 (gr <- GRanges(seqnames(seqinfo(bamlst[[1]])),IRanges(1, seqlengths(bamlst[[1]]))))
@@ -269,99 +271,90 @@ asFamilies %>%
 ```
 
 # Create Table of Validated Novel miRs
-```{r validated_miRs,eval=F}
+```{r summarize_novel,eval=T}
 load("amFSHs.rdata")
-head(amFSHs)
+#head(amFSHs)
 novel_mirs<-amFSHs %>% 
   mutate(Var1=as.character(Var1)) %>% 
   group_by(clust4) %>% 
   summarize(am1s=sum(am1),am2s=sum(am2),
             seq=list(as.character(Var1)),
-            MaxSeq=as.character(Var1)[which.max(am2)]) 
-  
-validated_mirs <-c("CCACGCAGGGATGTGGCTTT","GGCTTCAAGGATCGCTCGGGCA","GGCCGCAAAGGTTGCACAGGG",
-                   "ACAAACCATCTTGGGCTGTTAC","CCCCGACGGGGAGGGCAATGTTT", "TCCTCCGAGCCAAGCTTTTG",
-                   "ACATATCTACAGTCCTACTATA","CCGAGTTCTGCATTCCGCTTGAA","CCCACGCAGGGATGTGGCTTA",
-                   "AGCCGCATTGTACCGGGCTAT","CGCCGCATTGTACCGGGCTCT","CTTTCCGTCGGATGCTTCCAGC")
-#"Mon Jun 15 10:05:47 2015"
-validated_mirs<-c("CCACGCAGGGATGTGGCTTTT","GGCTTCAAGGATCGCTCGGGC","CCCCGACGGGGAGACTCACTTTT",
-                  "TCCTCCGAGCCAAGCTTTTG","AGCCGCATTGTACAGGGCTAT","AGCCGCATTGTACAGGGCTAT",
-                  "CTTTCCGTCGGATGCTTACAGC")
-
-#Tue Jun 16 11:41:02 2015 - Original Sequences from Karen's Novel miRs Table
-validated_mirs<-c("CCACGCAGGGATGTGGCTTT","GGCTTCAAGGATCGCTCGGGCA","CCCCGACGGGGAGGGCAATGTTT",
-                  "AGCCGCATTGTACCGGGCTAT","CGCCGCATTGTACCGGGCTCT","CTTTCCGTCGGATGCTTCCAGC")
-names(validated_mirs)<-c("KEM42017","KEM68162","KEM43147","KEM21802","KEM48467","KEM56768")
-
-seqX<-lapply(novel_mirs$seq,unlist)
-
-# tbl1$cluster<-as.numeric(sapply(seq_along(validated_mirs),function(x) grep(validated_mirs[x],seqX)))
-
-#Results Table
-validated_mirs<-validated_mirs[!names(validated_mirs) %in% "KEM21802"]
-tbl1<-as.data.frame(validated_mirs)
-
-#pre-allocate
-tbl1$num_seqs<-0
-tbl1$cluster<-0
-tbl1$seqs<-"none"
-
-#for loop to fill table
-for (i in 1:nrow(tbl1)) {
-  tbl1[i,"cluster"]<-which(unlist(sapply(seq_along(seqX),function(x) validated_mirs[i] %in% seqX[[x]])))
-  tbl1[i,"num_seqs"]<-length(unlist(novel_mirs[tbl1[i,"cluster"],"seq"]))
-#  tbl1[i,"seqs"]<-paste0(as.character(unlist(novel_mirs[tbl1[i,"cluster"],"seq"])),collapse=",")
-}
-tbl1$am1<-novel_mirs[tbl1$cluster,"am1s"]
-tbl1$am2<-novel_mirs[tbl1$cluster,"am2s"]
-tbl1$MaxSeq<-novel_mirs[tbl1$cluster,"MaxSeq"]
- tbl1<-as.data.frame(tbl1)
- tbl1<-tbl1[tbl1$num_seqs > 0,]
-
-
-  #Use this line to report all sequences in cluster
-  #summarize(am1s=sum(am1),am2s=sum(am2),seq=list(as.character(Var1)))
-
-#Make a Table for the subset of MiRs characterized in this paper
-
-# this one got filtered out somehow?
-#validated_mirs<-"CTTTCCGTCGGATGCTTACAGC"
-
-#f<-function(i) { lapply(blah[i]$seq,function(x) grep(novel_mirs[1],x)) }
-#lapply(seq_along(blah$seq), f)
-seqX<-lapply(novel_mirs$seq,unlist)
-#novel_mirs[unlist(sapply(seq_along(validated_mirs),function(x) grep(validated_mirs[x],seqX))),]
-
-#amFSHs[grep("CTTTCCGTCGGATGCTTACAGC",amFSHs$Seed),]
-#stringDist("CTTTCCGTCGGATGCTTACAGC","TCGTATGCCGTCTT")
-
-#sapply(seq_along(validated_mirs),function(x) grep(validated_mirs[x],seqX))
-
-
+            MaxSeq=as.character(Var1)[which.max(am2)]) %>% 
+  mutate(name=paste0("amex-miR-",clust4)) %>% select(-clust4)
 ```
 
-# Write out all Novel Families and blast max.sequences against mirBase to find closest known miRs
-```{r export_novel,eval=F}
-nm<-DNAStringSet(novel_mirs$MaxSeq)
-names(nm)<-paste0("axo-",novel_mirs$clust4)
-writeXStringSet(nm,"nm.fa")
+```{r blastn,eval=F}
+temp<-DNAStringSet(novel_mirs$MaxSeq)
+names(temp)<-novel_mirs$name
+writeXStringSet(temp,"novel_mirs.fasta")
 
-#vm<-DNAStringSet(validated_mirs)
-#writeXStringSet(vm,"vm.fa")
+system2("/home/bardwell/shared/ncbi-blast-2.2.31+/bin/makeblastdb",
+        args="-in mature.fa -out matureBLAST -dbtype nucl -parse_seqids")
 
-#cmd<-"blastn -query vm.fa -outfmt 10 -db ../miRs/mirBase/matureBLAST -word_size 5  "
-system("blastn -query nm.fa -outfmt 10 -out nm_matureBlast.csv -db ../miRs/mirBase/matureBLAST -word_size 4")
-
+system2("/home/bardwell/shared/ncbi-blast-2.2.31+/bin/blastn",
+        args="-query novel_mirs.fasta -outfmt 10 -out nm_matureBlast.csv -db matureBLAST -word_size 4")
+```
+# Parse Blast Output and merge with Novel miRs Table
+```{r parse_blast,eval=T}
 br<- read.csv("nm_matureBlast.csv",stringsAsFactors=F,header=F)
-colnames(br)<-c("qseqid","sseqid","pident","length","mismatch","gapopen","qstart","qend","sstart","send" ,"evalue","bitscore")
-
+colnames(br)<-c("qseqid","sseqid","pident","length","mismatch",
+                "gapopen","qstart","qend","sstart","send","evalue","bitscore")
 #set threshold on blast hits
 br<-br[br$evalue < 1 & (br$length-br$mismatch-br$gapopen) > 15,]
 dim(br)
-length(unique(br$qseqid))/length(nm)
 
+br2 <- br %>%
+mutate(fam=sapply(strsplit(as.character(sseqid),"-"),
+                  function(x) paste0(x[2],"-",gsub("\\*","",x[3]))))  %>%
+group_by(qseqid) %>% summarize(hom=paste0(unique(fam),collapse=","))
+
+novel_mirs<-merge(novel_mirs,br2,by.x="name",by.y="qseqid",all.x=TRUE)
 ```
 
+# Export Novel miRs Tables
+```{r export_novels_table,eval=T}
+
+#convert character list to collapsed String
+novel_mirs$sequences<-"none"
+
+for (i in 1:length(novel_mirs)) {
+novel_mirs[i,"sequences"]<-paste0(as.character(unlist(novel_mirs[i,"seq"])),collapse=":")
+}
+temp<-novel_mirs[,c("name","MaxSeq","hom","am1s","am2s","sequences")]
+
+#Write Supplemental Table containing all Novel Mirs
+write.csv(temp,"Supplementary_Table_2.csv",quote=F)
+
+#Tue Jun 16 11:41:02 2015 - Original Sequences from Karen's Novel miRs Table
+validated_mirs<-c("CCACGCAGGGATGTGGCTTT","GGCTTCAAGGATCGCTCGGGCA","CCCCGACGGGGAGGGCAATGTTT",
+                  "CGCCGCATTGTACCGGGCTCT","CTTTCCGTCGGATGCTTCCAGC")
+names(validated_mirs)<-c("KEM42017","KEM68162","KEM43147","KEM48467","KEM56768")
+
+seqX<-lapply(novel_mirs$seq,unlist)
+
+#Results Table
+tbl2<-as.data.frame(validated_mirs)
+
+#pre-allocate
+tbl2$num_seqs<-0
+tbl2$cluster<-0
+tbl2$seqs<-"none"
+
+#for loop to fill table
+for (i in 1:nrow(tbl2)) {
+  tbl2[i,"cluster"]<-which(unlist(sapply(seq_along(seqX),function(x) validated_mirs[i] %in% seqX[[x]])))
+  tbl2[i,"num_seqs"]<-length(unlist(novel_mirs[tbl2[i,"cluster"],"seq"]))
+  tbl2[i,"seqs"]<-paste0(as.character(unlist(novel_mirs[tbl2[i,"cluster"],"seq"])),collapse=":")
+}
+tbl2$am1<-novel_mirs[tbl2$cluster,"am1s"]
+tbl2$am2<-novel_mirs[tbl2$cluster,"am2s"]
+tbl2$MaxSeq<-novel_mirs[tbl2$cluster,"MaxSeq"]
+tbl2$homologues<-novel_mirs[tbl2$cluster,"hom"]
+ tbl2<-as.data.frame(tbl2)
+ tbl2<-tbl2[tbl2$num_seqs > 0,]
+ 
+write.csv(tbl2,"Table_2.csv",quote=F)
+```
 
 #### SESSION INFO
 ```{r sessionInfo,eval=T}
