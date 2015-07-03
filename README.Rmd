@@ -31,12 +31,13 @@ setwd("/home/bardwell/gearhart/amex-miR/")
 ```
 
 # Convert Original Data from Solexa
-```{r solexa,eval=F}
+```{r solexa,eval=T}
 #Illumina small RNA-Seq 3' adapter:  TCGTATGCCGTCTTCTGCTTGT
 adapter <- DNAString("TCGTATGCCGTCTTCTGCTTGT")
 
 am1<-readBaseQuality("/home/echeverr/gearhart/miRNA-Solexa/AM0001", seqPattern="*_1.seq.txt", prbPattern="*_1.prb.txt",type="Solexa")
 length(am1)
+writeFastq(am1,file="am1.fastq",full=TRUE,compress=TRUE)
 am1<-am1[alphabetScore(am1) > 800]
 am1<-am1[vcountPattern("-",sread(am1))==0]
 am1trimmed<-trimLRPatterns(Rpattern=adapter,Lpattern=adapter,subject=am1,max.Rmismatch=0.1)
@@ -45,6 +46,7 @@ writeFastq(am1trimmed,file="am1_qf_trim.fastq",full=TRUE,compress=FALSE)
 
 am2<-readBaseQuality("/home/echeverr/gearhart/miRNA-Solexa/AM0002", seqPattern="*_1.seq.txt", prbPattern="*_1.prb.txt",type="Solexa")
 length(am2)
+writeFastq(am2,file="am2.fastq",full=TRUE,compress=TRUE)
 am2<-am2[alphabetScore(am2) > 800]
 am2<-am2[vcountPattern("-",sread(am2)) == 0]
 am2trimmed<-trimLRPatterns(Rpattern=adapter, Lpattern=adapter, subject=am2,max.Rmismatch=0.1)
@@ -53,7 +55,7 @@ writeFastq(am2trimmed,file="am2_qf_trim.fastq",full=TRUE,compress=FALSE)
 ```
 
 # Build a bowtie index from mirBase 21 
-```{r bowtie_build,eval=F}
+```{r bowtie_build,eval=T}
 #download("ftp://mirbase.org/pub/mirbase/21/mature.fa.gz",dest="mature.fa.gz")
 #gunzip("mature.fa.gz")
 mature<-readRNAStringSet("mature.fa")
@@ -65,7 +67,7 @@ system2(command="/home/bardwell/shared/bowtie-1.1.2/bowtie-build",
 ```
 
 # Map trimmed reads to mature index
-```{r bowtie_map,eval=F}
+```{r bowtie_map,eval=T}
 #am1
 system2(command="/home/bardwell/shared/bowtie-1.1.2/bowtie",
         args=paste0("-t -p 24 -e 99999 --norc mature ",
@@ -92,7 +94,7 @@ indexBam("am2_qf_trim.mature.bam")
 # Read in sequences unmapped to MirBase 21
 This section reads in the fastq sequences that did not have any matches to mirBase 21.  The fullSeqHash function builds a hash table and enumerates the number of times each sequence occured in each sample.
 
-```{r readUnmapped,eval=F}
+```{r readUnmapped,eval=T}
 fls<-list.files(".",pattern=glob2rx("am?_qf_trim.unmapped2mature.fastq"),full.names=F)
 fls
 temp<-do.call(cbind,lapply(fls,readFastq))
@@ -115,7 +117,7 @@ save(amFSH,file="amFSH.rdata")
 ```
 
 # Cluster similar Sequences
-```{r cluster,eval=F}
+```{r cluster,eval=T}
 (nt<-detectCores())
 register(MulticoreParam(workers=nt))
 #load("amFSH.rdata")
@@ -182,7 +184,7 @@ matdensity(as.matrix(log2(am_mature[am_mature$am1+am_mature$am2 > 5,c("am1","am2
 #qtest <- quantro(as.matrix(log2(am_mature[am_mature$am1+am_mature$am2 > 7,c("am1","am2")]+0.5)),
 #groupFactor = factor(c("am1","am2")))
 
-#subset to samples with more than 7 counts
+#subset to samples with more than 5 counts
 am_mature<-am_mature[am_mature$am1+am_mature$am2 > 5,c("family","am1","am2")]
 
 #qqnorm(log2(am_mature$am1+0.5))
@@ -190,38 +192,38 @@ am_mature<-am_mature[am_mature$am1+am_mature$am2 > 5,c("family","am1","am2")]
 #not norml
 
 #quantile normalize
-#am_mature<-cbind(am_mature,
-#                 as.data.frame(normalize.quantiles(as.matrix(am_mature[,c("am1","am2")]))))
+am_mature<-cbind(am_mature,
+                 as.data.frame(normalize.quantiles(as.matrix(am_mature[,c("am1","am2")]))))
+colnames(am_mature)<-c("family","am1","am2","qn.am1","qn.am2")
+
 #
 #                 varianceStabilizingTransformation(as.matrix(am_mature[,c("am1","am2")])))
-
 #colnames(am_mature)<-c("family","am1","am2","qn.am1","qn.am2","vst.am1","vst.am2")
-#colnames(am_mature)<-c("am1","am2","family","qn.am1","qn.am2")
 
-#am_mature$log2am1<-log2(am_mature$qn.am1+0.5)
-#am_mature$log2am2<-log2(am_mature$qn.am2+0.5)
+am_mature$log2am1<-log2(am_mature$qn.am1+0.5)
+am_mature$log2am2<-log2(am_mature$qn.am2+0.5)
 #qqnorm(am_mature$rl.am1)
-#m<-am_mature[am_mature$family!="unknown",]$log2am1-am_mature[am_mature$family!="unknown",]$log2am2
-#a<-(am_mature[am_mature$family!="unknown",]$log2am1+am_mature[am_mature$family!="unknown",]$log2am2)/2
+m<-am_mature[am_mature$family!="unknown",]$log2am1-am_mature[am_mature$family!="unknown",]$log2am2
+a<-(am_mature[am_mature$family!="unknown",]$log2am1+am_mature[am_mature$family!="unknown",]$log2am2)/2
 #m<-am_mature$vst.am1-am_mature$vst.am2
 #a<-(am_mature$vst.am1+am_mature$vst.am2)/2
-#plot(a,m,cex=0.4,pch=16,col=ifelse(am_mature$family=="unknown","red","black"))
-#abline(h=0,col="black")
-#am_mature$logfc<-am_mature$vst.am2-am_mature$vst.am1
+plot(a,m,cex=0.4,pch=16,col=ifelse(am_mature$family=="unknown","red","black"))
+abline(h=0,col="red")
+am_mature$logfc<-am_mature$log2am2-am_mature$log2am1
 #head(am_mature)
 
-#tbl1_miRs<-c("let-7","let-7a","let-7f","miR-10","miR-21",
-#             "miR-27","miR-128","miR-140","miR-196","miR-199a","miR-206")
-#tbl1<-am_mature %>% dplyr::filter(family %in% tbl1_miRs) %>% group_by(family) %>% 
-#  summarize(control=sum(am1),blastema=sum(am2)) %>% 
-#  mutate(fam=factor(family,levels=tbl1_miRs)) %>% 
-#  select(fam,control,blastema)
-#tbl1
+tbl1_miRs<-c("let-7","let-7a","let-7f","miR-10","miR-21",
+             "miR-27","miR-128","miR-140","miR-196","miR-199a","miR-206")
+tbl1<-am_mature %>% dplyr::filter(family %in% tbl1_miRs) %>% group_by(family) %>% 
+  summarize(control=sum(am1),blastema=sum(am2)) %>% 
+  mutate(fam=factor(family,levels=tbl1_miRs)) %>% 
+  select(fam,control,blastema)
+tbl1
 ```
 
 # Export Tables for Known Sequences
 
-```{r export_known_tables,eval=F}
+```{r export_known_tables,eval=T}
 temp<-am_mature
 colnames(temp)<-c("miR Family","Control Counts","Blastema Counts",
                   "Normalized Control Counts","Normalized Blastema Counts",
@@ -236,7 +238,7 @@ write.csv(temp2,"Table_1.csv",quote=F)
 # Figure 1a - Barchart of mirBase 21 Mapping Data 
 Create a graphical summary of known sequences that map to mirBase 21.  This graphic shows sequences that are present at > 5% abundance in either sample.
 
-```{r barchart,eval=F,fig.height=8,fig.width=8}
+```{r barchart,eval=T,fig.height=8,fig.width=8}
 #Convert counts to fractions for each family
 asFamilies<-am_mature %>% group_by(family) %>% 
   summarize(control=sum(am1),blastema=sum(am2)) %>%

@@ -32,18 +32,40 @@ adapter <- DNAString("TCGTATGCCGTCTTCTGCTTGT")
 
 am1<-readBaseQuality("/home/echeverr/gearhart/miRNA-Solexa/AM0001", seqPattern="*_1.seq.txt", prbPattern="*_1.prb.txt",type="Solexa")
 length(am1)
+```
+
+    ## [1] 17878944
+
+``` r
+writeFastq(am1,file="am1.fastq",full=TRUE,compress=TRUE)
 am1<-am1[alphabetScore(am1) > 800]
 am1<-am1[vcountPattern("-",sread(am1))==0]
 am1trimmed<-trimLRPatterns(Rpattern=adapter,Lpattern=adapter,subject=am1,max.Rmismatch=0.1)
 length(am1)
+```
+
+    ## [1] 16691900
+
+``` r
 writeFastq(am1trimmed,file="am1_qf_trim.fastq",full=TRUE,compress=FALSE)
 
 am2<-readBaseQuality("/home/echeverr/gearhart/miRNA-Solexa/AM0002", seqPattern="*_1.seq.txt", prbPattern="*_1.prb.txt",type="Solexa")
 length(am2)
+```
+
+    ## [1] 21685056
+
+``` r
+writeFastq(am2,file="am2.fastq",full=TRUE,compress=TRUE)
 am2<-am2[alphabetScore(am2) > 800]
 am2<-am2[vcountPattern("-",sread(am2)) == 0]
 am2trimmed<-trimLRPatterns(Rpattern=adapter, Lpattern=adapter, subject=am2,max.Rmismatch=0.1)
 length(am2)
+```
+
+    ## [1] 20049802
+
+``` r
 writeFastq(am2trimmed,file="am2_qf_trim.fastq",full=TRUE,compress=FALSE)
 ```
 
@@ -73,9 +95,30 @@ system2(command="/home/bardwell/shared/bowtie-1.1.2/bowtie",
                     "-S am1_qf_trim.mature.sam"),
         stdout="am1_out.txt",stderr="am1_err.txt")
 asBam("am1_qf_trim.mature.sam",destination="am1_qf_trim.unsorted")
-sortBam("am1_qf_trim.unsorted.bam",destination="am1_qf_trim.mature")
-indexBam("am1_qf_trim.mature.bam")
+```
 
+    ## Warning in .local(file, destination, ...): [bam_sort_core] merging from 5
+    ## files...
+
+    ## [1] "am1_qf_trim.unsorted.bam"
+
+``` r
+sortBam("am1_qf_trim.unsorted.bam",destination="am1_qf_trim.mature")
+```
+
+    ## Warning in .local(file, destination, ...): [bam_sort_core] merging from 5
+    ## files...
+
+    ## [1] "am1_qf_trim.mature.bam"
+
+``` r
+indexBam("am1_qf_trim.mature.bam")
+```
+
+    ##       am1_qf_trim.mature.bam 
+    ## "am1_qf_trim.mature.bam.bai"
+
+``` r
 #am2
 system2(command="/home/bardwell/shared/bowtie-1.1.2/bowtie",
         args=paste0("-t -p 24 -e 99999 --norc mature ",
@@ -84,9 +127,28 @@ system2(command="/home/bardwell/shared/bowtie-1.1.2/bowtie",
                     "-S am2_qf_trim.mature.sam"),
         stdout="am2_out.txt",stderr="am2_err.txt")
 asBam("am2_qf_trim.mature.sam",destination="am2_qf_trim.unsorted")
+```
+
+    ## Warning in .local(file, destination, ...): [bam_sort_core] merging from 6
+    ## files...
+
+    ## [1] "am2_qf_trim.unsorted.bam"
+
+``` r
 sortBam("am2_qf_trim.unsorted.bam",destination="am2_qf_trim.mature")
+```
+
+    ## Warning in .local(file, destination, ...): [bam_sort_core] merging from 6
+    ## files...
+
+    ## [1] "am2_qf_trim.mature.bam"
+
+``` r
 indexBam("am2_qf_trim.mature.bam")
 ```
+
+    ##       am2_qf_trim.mature.bam 
+    ## "am2_qf_trim.mature.bam.bai"
 
 Read in sequences unmapped to MirBase 21
 ========================================
@@ -96,9 +158,24 @@ This section reads in the fastq sequences that did not have any matches to mirBa
 ``` r
 fls<-list.files(".",pattern=glob2rx("am?_qf_trim.unmapped2mature.fastq"),full.names=F)
 fls
+```
+
+    ## [1] "am1_qf_trim.unmapped2mature.fastq" "am2_qf_trim.unmapped2mature.fastq"
+
+``` r
 temp<-do.call(cbind,lapply(fls,readFastq))
 table(width(sread(temp[[1]])))
+```
 
+    ## 
+    ##      12      13      14      15      16      17      18      19      20 
+    ##      15     934   31058   67282  139399  106004  108310  105554  139588 
+    ##      21      22      23      24      25      26      27      28      29 
+    ##  903630  440172  196146   93756   66072   51724   52108   55678   61394 
+    ##      30      31      32      33      34      35      36 
+    ##   52524   50032   77236  261588 1429864  529674  236072
+
+``` r
 fullSeqHash <- function (x) {
   x<-x[width(x)>19 & width(x)<24] #based on table above
   seed<-as.data.frame(table(as.factor(as.character(sread(x)))))
@@ -111,7 +188,35 @@ names(amFSH)<-c("am1","am2")
 for (i in names(amFSH)) {amFSH[[i]]$sample <- i}
 amFSH<-do.call(rbind,amFSH) %>% spread(sample,Freq,fill=0)
 dim(amFSH)
+```
+
+    ## [1] 766039      3
+
+``` r
 amFSH[grep("GGCTTCAAGGATCGCTCGGG",amFSH$Var1),]
+```
+
+    ##                           Var1 am1 am2
+    ## 228222    GGCTTCAAGGATCGCTCGGG  16 180
+    ## 228223   GGCTTCAAGGATCGCTCGGGA   8  18
+    ## 228224 GGCTTCAAGGATCGCTCGGGAAA   2   2
+    ## 228225 GGCTTCAAGGATCGCTCGGGAAT   2   0
+    ## 228226   GGCTTCAAGGATCGCTCGGGC  40  84
+    ## 228227  GGCTTCAAGGATCGCTCGGGCA 144 582
+    ## 228228 GGCTTCAAGGATCGCTCGGGCAA  44 212
+    ## 228229 GGCTTCAAGGATCGCTCGGGCAC  18  40
+    ## 228230 GGCTTCAAGGATCGCTCGGGCAG   2   2
+    ## 228231 GGCTTCAAGGATCGCTCGGGCAT  46  78
+    ## 228232  GGCTTCAAGGATCGCTCGGGCC   2   8
+    ## 228233 GGCTTCAAGGATCGCTCGGGCCT  10   0
+    ## 228234 GGCTTCAAGGATCGCTCGGGTAA   2   2
+    ## 705698  GGCTTCAAGGATCGCTCGGGAA   0   6
+    ## 705699  GGCTTCAAGGATCGCTCGGGAC   0   2
+    ## 705700  GGCTTCAAGGATCGCTCGGGAT   0   2
+    ## 705701  GGCTTCAAGGATCGCTCGGGCG   0   2
+    ## 705702 GGCTTCAAGGATCGCTCGGGCGT   0   2
+
+``` r
 save(amFSH,file="amFSH.rdata")
 ```
 
@@ -120,14 +225,46 @@ Cluster similar Sequences
 
 ``` r
 (nt<-detectCores())
+```
+
+    ## [1] 24
+
+``` r
 register(MulticoreParam(workers=nt))
 #load("amFSH.rdata")
 amFSHs<-amFSH %>% filter((am1+am2)>7)
 dim(amFSHs)
+```
+
+    ## [1] 41233     3
+
+``` r
 system.time(d<-as.dist(stringdistmatrix(amFSHs$Var1,amFSHs$Var1,method="lv",nthread=nt)))
+```
+
+    ##     user   system  elapsed 
+    ## 4767.932   94.047  284.034
+
+``` r
 object_size(d)
+```
+
+    ## 6.8 GB
+
+``` r
 system.time(h<-hclust(d))
+```
+
+    ##    user  system elapsed 
+    ##  73.335   1.330  74.688
+
+``` r
 object_size(h)
+```
+
+    ## 826 kB
+
+``` r
 amFSHs$clust2<-cutree(h,h=2)
 amFSHs$clust3<-cutree(h,h=3)
 amFSHs$clust4<-cutree(h,h=4)
@@ -241,7 +378,7 @@ matdensity(as.matrix(log2(am_mature[am_mature$am1+am_mature$am2 > 5,c("am1","am2
 #qtest <- quantro(as.matrix(log2(am_mature[am_mature$am1+am_mature$am2 > 7,c("am1","am2")]+0.5)),
 #groupFactor = factor(c("am1","am2")))
 
-#subset to samples with more than 7 counts
+#subset to samples with more than 5 counts
 am_mature<-am_mature[am_mature$am1+am_mature$am2 > 5,c("family","am1","am2")]
 
 #qqnorm(log2(am_mature$am1+0.5))
@@ -249,34 +386,54 @@ am_mature<-am_mature[am_mature$am1+am_mature$am2 > 5,c("family","am1","am2")]
 #not norml
 
 #quantile normalize
-#am_mature<-cbind(am_mature,
-#                 as.data.frame(normalize.quantiles(as.matrix(am_mature[,c("am1","am2")]))))
+am_mature<-cbind(am_mature,
+                 as.data.frame(normalize.quantiles(as.matrix(am_mature[,c("am1","am2")]))))
+colnames(am_mature)<-c("family","am1","am2","qn.am1","qn.am2")
+
 #
 #                 varianceStabilizingTransformation(as.matrix(am_mature[,c("am1","am2")])))
-
 #colnames(am_mature)<-c("family","am1","am2","qn.am1","qn.am2","vst.am1","vst.am2")
-#colnames(am_mature)<-c("am1","am2","family","qn.am1","qn.am2")
 
-#am_mature$log2am1<-log2(am_mature$qn.am1+0.5)
-#am_mature$log2am2<-log2(am_mature$qn.am2+0.5)
+am_mature$log2am1<-log2(am_mature$qn.am1+0.5)
+am_mature$log2am2<-log2(am_mature$qn.am2+0.5)
 #qqnorm(am_mature$rl.am1)
-#m<-am_mature[am_mature$family!="unknown",]$log2am1-am_mature[am_mature$family!="unknown",]$log2am2
-#a<-(am_mature[am_mature$family!="unknown",]$log2am1+am_mature[am_mature$family!="unknown",]$log2am2)/2
+m<-am_mature[am_mature$family!="unknown",]$log2am1-am_mature[am_mature$family!="unknown",]$log2am2
+a<-(am_mature[am_mature$family!="unknown",]$log2am1+am_mature[am_mature$family!="unknown",]$log2am2)/2
 #m<-am_mature$vst.am1-am_mature$vst.am2
 #a<-(am_mature$vst.am1+am_mature$vst.am2)/2
-#plot(a,m,cex=0.4,pch=16,col=ifelse(am_mature$family=="unknown","red","black"))
-#abline(h=0,col="black")
-#am_mature$logfc<-am_mature$vst.am2-am_mature$vst.am1
+plot(a,m,cex=0.4,pch=16,col=ifelse(am_mature$family=="unknown","red","black"))
+abline(h=0,col="red")
+```
+
+![](README_files/figure-markdown_github/countBam-3.png)
+
+``` r
+am_mature$logfc<-am_mature$log2am2-am_mature$log2am1
 #head(am_mature)
 
-#tbl1_miRs<-c("let-7","let-7a","let-7f","miR-10","miR-21",
-#             "miR-27","miR-128","miR-140","miR-196","miR-199a","miR-206")
-#tbl1<-am_mature %>% dplyr::filter(family %in% tbl1_miRs) %>% group_by(family) %>% 
-#  summarize(control=sum(am1),blastema=sum(am2)) %>% 
-#  mutate(fam=factor(family,levels=tbl1_miRs)) %>% 
-#  select(fam,control,blastema)
-#tbl1
+tbl1_miRs<-c("let-7","let-7a","let-7f","miR-10","miR-21",
+             "miR-27","miR-128","miR-140","miR-196","miR-199a","miR-206")
+tbl1<-am_mature %>% dplyr::filter(family %in% tbl1_miRs) %>% group_by(family) %>% 
+  summarize(control=sum(am1),blastema=sum(am2)) %>% 
+  mutate(fam=factor(family,levels=tbl1_miRs)) %>% 
+  select(fam,control,blastema)
+tbl1
 ```
+
+    ## Source: local data frame [11 x 3]
+    ## 
+    ##         fam control blastema
+    ## 1     let-7  358964   423854
+    ## 2    let-7a  386281   434169
+    ## 3    let-7f  562472  1021519
+    ## 4    miR-10    5578    10653
+    ## 5   miR-128    4193     4943
+    ## 6   miR-140  195894   508891
+    ## 7   miR-196     162     1267
+    ## 8  miR-199a  279622   599913
+    ## 9   miR-206 1774460   340687
+    ## 10   miR-21   30904   549905
+    ## 11   miR-27      63      232
 
 Export Tables for Known Sequences
 =================================
@@ -331,6 +488,8 @@ asFamilies %>%
     scale_fill_manual(values=rev(colors),guide = guide_legend(reverse=TRUE)) +
     geom_bar(stat="identity") +theme_classic()
 ```
+
+![](README_files/figure-markdown_github/barchart-1.png)
 
 Create Table of Validated Novel miRs
 ====================================
@@ -483,8 +642,9 @@ sessionInfo()
     ## [49] stringr_0.6.2          sendmailR_1.2-1        locfit_1.5-9.1        
     ## [52] munsell_0.4.2          rngtools_1.2.4         AnnotationDbi_1.28.1  
     ## [55] base64_1.1             RCurl_1.95-4.4         grid_3.2.0            
-    ## [58] iterators_1.0.7        bitops_1.0-6           base64enc_0.1-2       
-    ## [61] rmarkdown_0.7          gtable_0.1.2           codetools_0.2-11      
-    ## [64] multtest_2.24.0        DBI_0.3.1              reshape_0.8.5         
-    ## [67] reshape2_1.4.1         illuminaio_0.10.0      rtracklayer_1.26.2    
-    ## [70] knitr_1.9              BatchJobs_1.6          Rcpp_0.11.6
+    ## [58] iterators_1.0.7        labeling_0.3           bitops_1.0-6          
+    ## [61] base64enc_0.1-2        rmarkdown_0.7          gtable_0.1.2          
+    ## [64] codetools_0.2-11       multtest_2.24.0        DBI_0.3.1             
+    ## [67] reshape_0.8.5          reshape2_1.4.1         illuminaio_0.10.0     
+    ## [70] rtracklayer_1.26.2     knitr_1.9              BatchJobs_1.6         
+    ## [73] Rcpp_0.11.6
